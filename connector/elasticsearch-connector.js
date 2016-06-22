@@ -37,8 +37,28 @@
           addElasticsearchField(name + '_longitude', 'float');
       }
   }
-  
-  var getElasticsearchTypeMapping = function(connectionData){
+
+  //RA - recursion for nested objects
+  var traverseHeader = function (obj, key)
+  {
+    if (obj.properties !== null && obj.properties !== undefined && typeof obj.properties == 'object')
+    {
+       $.each(obj.properties, function(k, v) {
+         var kLocal = k;
+         if (key != "") kLocal = key + "." + k;
+         if (_.has(obj.properties, [k, "properties"]))
+         {
+             traverseHeader(obj.properties[k], kLocal);
+         }
+         else
+         {
+           addElasticsearchField(kLocal, v.type, v.format, v.lat_lon);
+         }
+       });
+    }
+  };
+
+    var getElasticsearchTypeMapping = function(connectionData){
 
       tableau.log('[getElasticsearchTypeMapping] invoking');
 
@@ -61,10 +81,9 @@
 
         },
       success: function(data){
-          clearError();
-
-          var connectionData = this;
-          console.log('[getElasticsearchTypeMapping] ', connectionData);
+              
+              var connectionData = this;
+              console.log('[getElasticsearchTypeMapping] ', connectionData);
         
         var indexName = connectionData.elasticsearchIndex;
         
@@ -77,11 +96,11 @@
                 }
             });
         }
-        _.forIn(data[indexName].mappings[connectionData.elasticsearchType].properties, function(val, key){
-            // TODO: Need to support nested objects and arrays in some way
-            addElasticsearchField(key, val.type, val.format, val.lat_lon)    
-        });
-        
+
+        var key = "";
+        //RA - recursion for nested objects
+        traverseHeader(data[indexName].mappings[connectionData.elasticsearchType], key);
+
         tableau.log('Number of header columns: ' + elasticsearchFields.length);
         
         var connectionData = getTableauConnectionData();
@@ -98,22 +117,22 @@
               tableau.submit();
           }
           else{
-              abortWithError('Invalid phase: ' + tableau.phase + ' aborting', true);
+              abortWithError('Invalid phase: ' + tableau.phase + ' aborting');
           }
 
       },
       error: function(xhr, ajaxOptions, err){
         if(xhr.status == 0){
-          abort('Unable to get Elasticsearch types, unable to connect to host or CORS request was denied');
+          abort('Request error, unable to connect to host or CORS request was denied');
         }
         else{
-          abort('Unable to get Elasticsearch types, status code: ' + xhr.status + '; ' + xhr.responseText + '\n' + err);
+          abort('Request error, status code: ' + xhr.status + '; ' + xhr.responseText + '\n' + err);
         }          
       }
     }); 
   }
 
-  function abort(errorMessage, kill){
+  function abort(errorMessage){
       
       $('#divMessage').css('display', 'none');
       
@@ -124,16 +143,9 @@
         scrollTop: $("#divError").offset().top
     }, 500);
     
-      console.error(errorMessage);
-      if(kill){
-          tableau.abortWithError(errorMessage);
-      }
-
+      tableau.log(errorMessage);
+      tableau.abortWithError(errorMessage);    
   }
-
-     function clearError(){
-         $('#divError').css('display', 'none');
-     }
   
   //
   // Connector definition
@@ -269,18 +281,13 @@
 
          $("#inputElasticsearchIndexTypeahead").typeahead({source: function(something, cb){
 
-             $('.index-icon').toggleClass('hide');
-
              getElasticsearchIndices(function(err, indices){
 
                  if(err){
-                     $('.index-icon').toggleClass('hide');
                      return abort(err);
                  }
 
                  getElasticsearchAliases(function(err, aliases){
-
-                     $('.index-icon').toggleClass('hide');
 
                      if(err){
                          return abort(err);
@@ -299,12 +306,8 @@
 
          $("#inputElasticsearchTypeTypeahead").typeahead({source:function(something, cb){
 
-             $('.type-icon').toggleClass('hide');
-
              var connectionData = getTableauConnectionData();
              getElasticsearchTypes(connectionData.elasticsearchIndex, function(err, types){
-                 $('.type-icon').toggleClass('hide');
-
                  if(err){
                      return abort(err);
                  }
@@ -343,8 +346,6 @@
           },
           success: function (data) {
 
-              clearError();
-
               var indices = _.keys(data);
               var typeMap = {};
               
@@ -360,10 +361,10 @@
           },
           error: function (xhr, ajaxOptions, err) {
               if (xhr.status == 0) {
-                  cb('Unable to get Elasticsearch types, unable to connect to host or CORS request was denied');
+                  cb('Request error, unable to connect to host or CORS request was denied');
               }
               else {
-                  cb("Unable to get Elasticsearch types, status code:  " + xhr.status + '; ' + xhr.responseText + "\n" + err);
+                  cb("Request error, status code:  " + xhr.status + '; ' + xhr.responseText + "\n" + err);
               }
           }
       });
@@ -393,18 +394,16 @@
           },
           success: function (data) {
 
-              clearError();
-
               var indices = _.keys(data);
 
               cb(null, indices);
           },
           error: function (xhr, ajaxOptions, err) {
               if (xhr.status == 0) {
-                  cb('Unable to get Elasticsearch indices, unable to connect to host or CORS request was denied');
+                  cb('Request error, unable to connect to host or CORS request was denied');
               }
               else {
-                  cb("Unable to get Elasticsearch indices, status code:  " + xhr.status + '; ' + xhr.responseText + "\n" + err);
+                  cb("Request error, status code:  " + xhr.status + '; ' + xhr.responseText + "\n" + err);
               }
           }
       });
@@ -434,8 +433,6 @@
           },
           success: function (data) {
 
-              clearError();
-
               var aliasMap = {},
                   aliases = [];
                   
@@ -447,10 +444,10 @@
           },
           error: function (xhr, ajaxOptions, err) {
               if (xhr.status == 0) {
-                  cb('Unable to get Elasticsearch aliases, unable to connect to host or CORS request was denied');
+                  cb('Request error, unable to connect to host or CORS request was denied');
               }
               else {
-                  cb("Unable to get Elasticsearch aliases, status code:  " + xhr.status + '; ' + xhr.responseText + "\n" + err);
+                  cb("Request error, status code:  " + xhr.status + '; ' + xhr.responseText + "\n" + err);
               }
           }
       });
@@ -500,18 +497,16 @@
              },
              success: function (data) {
 
-                 clearError();
-
                  var result = processSearchResults(data);
 
                  cb(null, result.scrollId);
              },
              error: function (xhr, ajaxOptions, err) {
                  if (xhr.status == 0) {
-                     cb('Error creating Elasticsearch scroll window, unable to connect to host or CORS request was denied', true);
+                     cb('Request error, unable to connect to host or CORS request was denied');
                  }
                  else {
-                     cb("Error creating Elasticsearch scroll window, status code:  " + xhr.status + '; ' + xhr.responseText + "\n" + err, true);
+                     cb("Error creating Elasticsearch scroll window, status code:  " + xhr.status + '; ' + xhr.responseText + "\n" + err);
                  }
              }
          });
@@ -545,8 +540,6 @@
 
              },
              success: function (data) {
-                 clearError();
-
                  var result = processSearchResults(data);
 
                  if(cb){
@@ -555,14 +548,34 @@
              },
              error: function (xhr, ajaxOptions, err) {
                  if (xhr.status == 0) {
-                     cb('Error processing next scroll result, unable to connect to host or CORS request was denied', true);
+                     cb('Request error, unable to connect to host or CORS request was denied');
                  }
                  else {
-                     cb("Error processing next scroll result, status code:  " + xhr.status + '; ' + xhr.responseText + "\n" + err, true);
+                     cb("Error creating Elasticsearch scroll window, status code:  " + xhr.status + '; ' + xhr.responseText + "\n" + err);
                  }
              }
          });
      };
+
+    //RA - recursion for nested objects
+    var traverse = function (obj, key, ret)
+    {
+      if (obj !== null && obj !== undefined && typeof obj == 'object')
+      {
+        $.each(obj, function(k, v) {
+          var kLocal = k;
+          if (key != "") kLocal = key + "." + k;
+          if (v !== null && v !== undefined && typeof v == 'object')
+          {
+            traverse(v, kLocal, ret); 
+          }
+          else
+          {
+            ret[kLocal] = v;
+          }
+        });
+      }
+    };
 
      var processSearchResults = function(data){
 
@@ -584,21 +597,17 @@
              // mash the data into an array of objects
              for (ii = 0; ii < hitsToProcess; ++ii) {
 
-                 var item = {};
+                 var item = hits[ii]._source;
+                 var key = "";
 
-                 // Add blank fields to match the specified columns (otherwise Tableau complains
-                 // about this noisily in its log files
-                 _.each(connectionData.fields, function(field){
+                 //RA - recusrion for nested objects
+                 traverse(hits[ii]._source, key, item);  
 
-                     item[field.name] = _.isNull(hits[ii]._source[field.name]) || _.isUndefined(hits[ii]._source[field.name]) ?
-                                        null :
-                                        hits[ii]._source[field.name];
-                 });
-
-                 // Copy over any formatted value to the source object
+                // Copy over any formatted value to the source object
                  _.each(connectionData.dateFields, function(field){
 
                      if(!item[field]){
+                         item[field] = null;
                          return;
                      }
 
@@ -606,11 +615,6 @@
                          .replace(' -', '-')).format('YYYY-MM-DD HH:mm:ss');
                  });
                  _.each(connectionData.geoPointFields, function(field){
-
-                     if(!item[field.name]){
-                         return;
-                     }
-
                      var latLonParts = item[field.name] ? item[field.name].split(', ') : [];
                      if(latLonParts.length != 2){
                          console.log('[getTableData] Bad format returned for geo_point field: ' + field.name + '; value: ' + item[field.name]);
@@ -620,7 +624,7 @@
                      item[field.name + '_longitude'] = parseFloat(latLonParts[1]);
                  });
                  item._id = hits[ii]._id;
-                 item._sequence = totalCount + ii;
+                 //item._sequence = requestData.from + ii;
 
                  toRet.push(item);
              }
